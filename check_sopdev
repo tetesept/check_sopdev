@@ -1,0 +1,223 @@
+#!/bin/bash
+##############################
+#Nagios Sophos AP/RED Plugin #
+#Thomas Schewe	   		     #
+#Black and White Admins      #
+#IT aus Leidenschaft	     #
+##############################
+
+#
+#!!!NOTE!!!
+#If you like this Skrit and find it helpful
+#Please feel free to donate to keep this Project free
+#Thanks in advance for your help
+#Paypal mail@thomas-schewe.de
+#
+
+#Plugin zur Ueberwachung der Sophos AP und RED Devices über Nagios oder Icinga/Icinga2
+
+#Statuscodes:
+#Code   Status
+#0      OK
+#1      WARNING
+#2      CRITICAL
+#3      UNKNOWN
+
+#Chlog
+version="0.6"
+versiondate="29.03.2018"
+
+#Funktionen
+debug()
+{
+    fett=`tput bold`
+    reset=`tput sgr0`
+    if [ "$1" == "off" ]
+    then
+        set +x
+        echo "${fett}--------------------DEBUG=OFF-------------------${reset}"
+    elif [ "$1" == "on" ] || [ "$1" = "" ]
+    then
+        echo "${fett}--------------------DEBUG=ON--------------------${reset}"
+        set -x
+    else
+        echo "Error. Wrong Input: ${0} ${1}. Use \"debug on\" or \"debug off\" to enter or leave debug mode"
+        exit
+    fi
+}
+
+#Hilfe anzeigen
+helpme()
+{
+	echo ""
+    echo "Usage:"
+    echo -e "\t check_sopdev -t \$HOST -c \$COMMUNITY -d \$DEVICE -n \$DEVICENAME"
+	echo ""
+	echo "Example:"
+	echo -e "\t check_sopdev -t 192.186.1.1 -c public -d wlan23 -n Berlin"
+	echo -e "\t check_sopdev -t 192.186.1.1 -c public -d red2 -n Frankfurt"
+	echo ""
+	exit 3
+}
+
+#Info
+defdone()
+{
+	echo "Script Version: v${version} $versiondate" 
+}
+
+#Zum einblenden der Konsolenbefehle aktivieren
+#debug on
+
+#Init
+datefp=`date +%Y%m%d%H%M%S`
+device="notset"
+interface="notset"
+curitfp="notset"
+devfounf="notfount"
+devname="notset"
+status=""
+
+#Optinhandler
+while getopts :t:c:d:n: option
+do
+	case $option in
+	t)
+		target=$OPTARG	
+	;;
+	c)
+		community=$OPTARG
+	;;
+	d)
+		device=$OPTARG
+	;;
+	n)
+		devname=$OPTARG
+	;;
+	\?)
+	    echo "Invalid option: -$OPTARG"
+		helpme
+	;;
+	:)
+		echo "Option -$OPTARG requires an argument."
+		helpme
+	;;
+	esac
+done
+
+if [ "$devname" == "notset" ]
+then
+	devname=`echo $device`
+fi
+
+if [ "$target" == "" ]
+then
+	echo ""
+	echo "Error. Target is missing"
+	helpme
+fi
+
+if [ "$community" == "" ]
+then
+	echo ""
+	echo "Error. Community is missing"
+	helpme
+fi
+
+#Trap
+trap 'defdone' SIGINT SIGHUP SIGILL SIGSYS SIGTERM SIGSTOP 0 1 2 3
+
+#Interface
+if [ "$interface" == "notset" ]
+then
+	interface="(wlan|red)"
+else
+	interface=`echo $device | sed -e  "1,4 s/[1-9][0-9]\?//g"`
+fi
+
+#Daten sammeln und array füllen
+IFS=$'\n'
+readarray -t devicearray <<< "$(snmpwalk -v2c -c public $target IF-MIB::ifDescr | egrep $interface | grep -v redw)"
+errorarray=()
+
+#Abfrage für alle devices
+if [ "$device" == "notset" ]
+then
+	for curdev in "${devicearray[@]}"
+	do
+		curdevname=`echo $curdev | sed 's/\./ /g' | awk '{print $5}'`
+		curdevnumber=`echo $curdev | sed 's/\./ /g' | awk '{print $2}'`
+		curifstatus=`snmpwalk -v2c -c public $target IF-MIB::ifOperStatus.${curdevnumber} | awk '{print $4}' | sed 's/(1)//g' | sed 's/(2)//g'`
+		curiftraf=`snmpwalk -v2c -c public $target IF-MIB::ifOutUcastPkts.${curdevnumber} | awk '{print $4}'`
+		curitfp=`snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.17.${curdevnumber} | awk '{print $4}'`
+		if [[ "$curitfp" == "0" ]]
+		then
+			echo "$curdevname is DOWN $curiftraf"
+			status="$status ,$curdevname is DOWN"
+			errorarray[${equalz}]=2
+		else
+			echo "$curdevname is UP $curiftraf"
+			status="$status , $curdevname is UP"
+			errorarray[${equalz}]=0
+		fi
+	done
+else
+#Abfrage für ein Device
+	for curdev in "${devicearray[@]}"
+	do
+		curdevname=`echo $curdev | sed 's/\./ /g' | awk '{print $5}'`
+		curdevnumber=`echo $curdev | sed 's/\./ /g' | awk '{print $2}'`
+		curifstatus=`snmpwalk -v2c -c public $target IF-MIB::ifOperStatus.${curdevnumber} | awk '{print $4}' | sed 's/(1)//g' | sed 's/(2)//g'`
+		curiftraf=`snmpwalk -v2c -c public $target IF-MIB::ifOutUcastPkts.${curdevnumber} | awk '{print $4}'`
+		curitfp=`snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.17.${curdevnumber} | awk '{print $4}'`
+		if [[ "$curdevname" == "$device" ]]
+		then
+			if [[ "$curitfp" == "0" ]]
+			then
+           		devfounf=0
+				status="WLAN $devname is DOWN \n Not Connected to $target \n Device $curdevname \n Internal Port $curdevnumber is $curifstatus"
+           		errorarray[${equalz}]=2
+           	else
+           		devfounf=0
+				curiftrafhuman=$((((($curiftraf+512)/1024)/1024)/2))
+				status="WLAN $devname is UP with $curiftrafhuman MB/s \n Connected to $target \n Device $curdevname \n Internal Port $curdevnumber is $curifstatus"
+               	errorarray[${equalz}]=0   
+			fi
+		fi
+	done
+fi
+	
+#Device nicht gefunden
+if [ "$devfounf" != "0" ]
+then
+	if [  "$device" != "notset" ]
+	then
+		echo "Error. $device not found"
+		exit 3
+	fi
+fi
+
+#Errors sammeln
+error=`echo ${errorarray[*]} | grep 2`
+ok=`echo ${errorarray[*]} | grep 0`
+
+#Statusausgabe
+echo -e $status | sed '1,1s/ , //'
+
+#Unknown
+if [ "$error" == ""  ] && [ "$ok" == ""  ]
+then 
+	exit 3
+fi
+
+#Critikal
+if [ "$error" != ""  ]
+then
+	exit 2
+fi
+
+#OK
+if [ "$ok" != ""  ]
+then
+    exit 0
+fi
