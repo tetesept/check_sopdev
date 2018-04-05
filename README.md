@@ -5,6 +5,7 @@ Usage:
 check_sopdev -t \$HOST -c \$COMMUNITY -d \$DEVICE -n \$DEVICENAME"
 
 Example:
+
 check_sopdev -t 192.186.1.1 -c public -d wlan23 -n Berlin
 
 check_sopdev -t 192.186.1.1 -c public -d red2 -n Frankfurt
