@@ -3,13 +3,13 @@ Plugin zur Überwachung der Sophos AP und RED Devices über Nagios oder Icinga/I
 
 Usage:
 
-check_sopdev -t \$HOST -c \$COMMUNITY -d \$DEVICE -n \$DEVICENAME"
+check_sopdev -t \$HOST -c \$COMMUNITY -d \$DEVICE -i \$INFODESCRIPTION"
 
 Example:
 
-check_sopdev -t 192.186.1.1 -c public -d wlan23 -n Berlin
+check_sopdev -t 192.186.1.1 -c public -d wlan23 -i Berlin
 
-check_sopdev -t 192.186.1.1 -c public -d red2 -n Frankfurt
+check_sopdev -t 192.186.1.1 -c public -d red2 -i Frankfurt
 
 !!!NOTE!!!
 
