@@ -42,8 +42,6 @@ helpme()
 	echo ""
         echo "Usage Shell:"
         echo -e "\t check_sopdev -h \$HOST -c \$COMMUNITY -d \$DEVICENAME -i \$INFODESCRIPTION"
-        echo "Usage Nagios"
-        echo -e "\t check_sopdev!\$COMMUNITY!\$DEVICENAME"
 	echo ""
 	exit 3
 }
