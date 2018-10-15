@@ -1,20 +1,10 @@
 #!/bin/bash
-##############################
-#Nagios Sophos AP/RED Plugin #
-#Thomas Schewe	   		     #
-#Black and White Admins      #
-#IT aus Leidenschaft	     #
-##############################
+############################
+#Nagios Sophos Plugin      #
+#TeTesept  		   #
+############################
 
-#
-#!!!NOTE!!!
-#If you like this Skrit and find it helpful
-#Please feel free to donate to keep this Project free
-#Thanks in advance for your help
-#Paypal mail@thomas-schewe.de
-#
-
-#Plugin zur Ueberwachung der Sophos AP und RED Devices über Nagios oder Icinga/Icinga2
+#Nagios Plugin zur Ueberpruefung der RED / WLAN Devices
 
 #Statuscodes:
 #Code   Status
@@ -24,38 +14,36 @@
 #3      UNKNOWN
 
 #Chlog
-version="0.6"
-versiondate="29.03.2018"
+version="0.9"
+chdate="18.10.2018"
 
 #Funktionen
 debug()
 {
-    fett=`tput bold`
-    reset=`tput sgr0`
-    if [ "$1" == "off" ]
-    then
-        set +x
-        echo "${fett}--------------------DEBUG=OFF-------------------${reset}"
-    elif [ "$1" == "on" ] || [ "$1" = "" ]
-    then
-        echo "${fett}--------------------DEBUG=ON--------------------${reset}"
-        set -x
-    else
-        echo "Error. Wrong Input: ${0} ${1}. Use \"debug on\" or \"debug off\" to enter or leave debug mode"
-        exit
-    fi
+        fett=`tput bold`
+        reset=`tput sgr0`
+        if [ "$1" == "off" ]
+        then
+                set +x
+                echo "${fett}--------------------DEBUG=OFF-------------------${reset}"
+        elif [ "$1" == "on" ] || [ "$1" = "" ]
+        then
+                echo "${fett}--------------------DEBUG=ON--------------------${reset}"
+                set -x
+        else
+                echo "Error. Wrong Input: ${0} ${1}. Use \"debug on\" or \"debug off\" to enter or leave debug mode"
+                exit
+        fi
 }
 
 #Hilfe anzeigen
 helpme()
 {
 	echo ""
-    echo "Usage:"
-    echo -e "\t check_sopdev -t \$HOST -c \$COMMUNITY -d \$DEVICE -n \$DEVICENAME"
-	echo ""
-	echo "Example:"
-	echo -e "\t check_sopdev -t 192.186.1.1 -c public -d wlan23 -n Berlin"
-	echo -e "\t check_sopdev -t 192.186.1.1 -c public -d red2 -n Frankfurt"
+        echo "Usage Shell:"
+        echo -e "\t check_sopdev -h \$HOST -c \$COMMUNITY -d \$DEVICENAME -i \$INFODESCRIPTION"
+        echo "Usage Nagios"
+        echo -e "\t check_sopdev!\$COMMUNITY!\$DEVICENAME"
 	echo ""
 	exit 3
 }
@@ -63,39 +51,47 @@ helpme()
 #Info
 defdone()
 {
-	echo "Script Version: v${version} $versiondate" 
+	echo "Script Version: v${version} - ${chdate}" 
 }
+
+#Clean
+clean()
+{
+	find -P "/tmp/${target}/" -maxdepth 2 -type f -mmin +30 -exec rm {} \;
+	defdone
+}
+
 
 #Zum einblenden der Konsolenbefehle aktivieren
 #debug on
 
 #Init
 datefp=`date +%Y%m%d%H%M%S`
-device="notset"
-interface="notset"
-curitfp="notset"
+reddevice="(wlan|red)"
 devfounf="notfount"
-devname="notset"
 status=""
+curdir=`echo $0 | sed 's/check_red//'`
+ScriptVersion=`ls -lah $curdir | grep check_db | grep -v check_db~ | awk '{print $6,$7,$8}'`
+ScriptVersion=`ls -lah --time-style=+%d.%m.%Y_%H:%M:%S $curdir | grep check_db | grep -v check_db~  | sed 's/_/ /g' | awk '{print $6,$7}'`
 
 #Optinhandler
-while getopts :t:c:d:n: option
+while getopts :h:c:d:i: option
 do
 	case $option in
-	t)
+	h)
 		target=$OPTARG	
 	;;
 	c)
 		community=$OPTARG
 	;;
+	i)
+		info=$OPTARG
+	;;
 	d)
-		device=$OPTARG
-	;;
-	n)
-		devname=$OPTARG
-	;;
+		reddevice=$OPTARG
+	;;	
 	\?)
-	    echo "Invalid option: -$OPTARG"
+	    	echo "Invalid option: -$OPTARG"
 		helpme
 	;;
 	:)
@@ -105,18 +101,12 @@ do
 	esac
 done
 
-if [ "$devname" == "notset" ]
-then
-	devname=`echo $device`
-fi
-
 if [ "$target" == "" ]
 then
 	echo ""
 	echo "Error. Target is missing"
 	helpme
 fi
-
 if [ "$community" == "" ]
 then
 	echo ""
@@ -124,75 +114,113 @@ then
 	helpme
 fi
 
-#Trap
-trap 'defdone' SIGINT SIGHUP SIGILL SIGSYS SIGTERM SIGSTOP 0 1 2 3
 
-#Interface
-if [ "$interface" == "notset" ]
+#Temp dir
+tmpdir="/tmp/${target}/"
+if ! [ -d $tmpdir  ]
 then
-	interface="(wlan|red)"
-else
-	interface=`echo $device | sed -e  "1,4 s/[1-9][0-9]\?//g"`
+	mkdir $tmpdir
 fi
+if ! [ -r $tmpdir  ] && [ -w $tmpdir  ]
+then
+	mkdir $tmpdir
+fi
+
+#Trap zum aufräumen
+trap 'clean' SIGINT SIGHUP SIGILL SIGSYS SIGTERM SIGSTOP 0 1 2 3
 
 #Daten sammeln und array füllen
 IFS=$'\n'
-readarray -t devicearray <<< "$(snmpwalk -v2c -c public $target IF-MIB::ifDescr | egrep $interface | grep -v redw)"
+readarray -t devicearray <<< "$(snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.2 | egrep $reddevice)"
+readarray -t statusarray <<< "$(snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.17)"
 errorarray=()
 
 #Abfrage für alle devices
-if [ "$device" == "notset" ]
+if [ "$reddevice" == "(wlan|red)" ]
 then
-	for curdev in "${devicearray[@]}"
+	reddrun=`snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.25.4.2.1.4.4275 | awk '{print $4}' | sed 's/"//g'`
+	if [ "$reddrun" == "" ]
+	then
+		echo "Red daemon is not Running, "
+		exit 2
+	else
+		status="$status Red daemon is Running"
+	fi
+	for i in "${statusarray[@]}"
 	do
-		curdevname=`echo $curdev | sed 's/\./ /g' | awk '{print $5}'`
-		curdevnumber=`echo $curdev | sed 's/\./ /g' | awk '{print $2}'`
-		curifstatus=`snmpwalk -v2c -c public $target IF-MIB::ifOperStatus.${curdevnumber} | awk '{print $4}' | sed 's/(1)//g' | sed 's/(2)//g'`
-		curiftraf=`snmpwalk -v2c -c public $target IF-MIB::ifOutUcastPkts.${curdevnumber} | awk '{print $4}'`
-		curitfp=`snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.17.${curdevnumber} | awk '{print $4}'`
-		if [[ "$curitfp" == "0" ]]
-		then
-			echo "$curdevname is DOWN $curiftraf"
-			status="$status ,$curdevname is DOWN"
-			errorarray[${equalz}]=2
-		else
-			echo "$curdevname is UP $curiftraf"
-			status="$status , $curdevname is UP"
-			errorarray[${equalz}]=0
-		fi
+		for z in "${devicearray[@]}"
+		do
+			equali=`echo $i | sed 's/.1.3.6.1.2.1.2.2.1.17.//' | awk '{print $1}'`
+			equalz=`echo $z | sed 's/.1.3.6.1.2.1.2.2.1.2.//' | awk '{print $1}'`
+			if [ "$equali" = "$equalz" ]
+			then
+				traffic=`echo $i | sed 's/.1.3.6.1.2.1.2.2.1.2.//' | awk '{print $4}'`
+				device=`echo $i $z | awk '{print $8}' | sed 's/"//g'`
+				tmpdirdev="/tmp/${target}/${device}/"
+				if ! [ -d $tmpdirdev  ]
+				then
+					mkdir $tmpdirdev
+				fi                                                                                                                                                 
+				fpinuse=`ls ${tmpdirdev} | grep $traffic`
+				touch ${tmpdirdev}${traffic}
+				if [[ "$fpinuse" != "" ]]
+				then
+					status="$status ,$device is DOWN"
+					errorarray[${equalz}]=2
+				else
+					status="$status , $device is UP"
+					errorarray[${equalz}]=0
+				fi
+			fi
+		done
 	done
 else
 #Abfrage für ein Device
-	for curdev in "${devicearray[@]}"
-	do
-		curdevname=`echo $curdev | sed 's/\./ /g' | awk '{print $5}'`
-		curdevnumber=`echo $curdev | sed 's/\./ /g' | awk '{print $2}'`
-		curifstatus=`snmpwalk -v2c -c public $target IF-MIB::ifOperStatus.${curdevnumber} | awk '{print $4}' | sed 's/(1)//g' | sed 's/(2)//g'`
-		curiftraf=`snmpwalk -v2c -c public $target IF-MIB::ifOutUcastPkts.${curdevnumber} | awk '{print $4}'`
-		curitfp=`snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.17.${curdevnumber} | awk '{print $4}'`
-		if [[ "$curdevname" == "$device" ]]
-		then
-			if [[ "$curitfp" == "0" ]]
-			then
-           		devfounf=0
-				status="WLAN $devname is DOWN \n Not Connected to $target \n Device $curdevname \n Internal Port $curdevnumber is $curifstatus"
-           		errorarray[${equalz}]=2
-           	else
-           		devfounf=0
-				curiftrafhuman=$((((($curiftraf+512)/1024)/1024)/2))
-				status="WLAN $devname is UP with $curiftrafhuman MB/s \n Connected to $target \n Device $curdevname \n Internal Port $curdevnumber is $curifstatus"
-               	errorarray[${equalz}]=0   
+        for i in "${statusarray[@]}"
+        do
+		for z in "${devicearray[@]}"
+		do
+			equali=`echo $i | sed 's/.1.3.6.1.2.1.2.2.1.17.//' | awk '{print $1}'`
+		        equalz=`echo $z | sed 's/.1.3.6.1.2.1.2.2.1.2.//' | awk '{print $1}'`
+
+	            	if [ "$equali" = "$equalz" ]
+        	    	then
+                		traffic=`echo $i | sed 's/.1.3.6.1.2.1.2.2.1.2.//' | awk '{print $4}'`
+                		device=`echo $i $z | awk '{print $8}' | sed 's/"//g'`
+				if [[ "$device" == "$reddevice" ]]
+				then
+                			tmpdirdev="/tmp/${target}/${device}/"
+                			if ! [ -d $tmpdirdev  ]
+                			then
+                				mkdir $tmpdirdev
+                			fi
+                			fpinuse=`ls ${tmpdirdev} | grep $traffic`
+                			touch ${tmpdirdev}${traffic}                                                              
+                			if [[ "$fpinuse" != "" ]]
+                			then
+                				devfounf=0
+						status="$device $info is DOWN - Tunnel is DOWN and not Connected to $target - FootPrint is $traffic - Matrix size is ${#statusarray[*]}x${#devicearray[*]}"
+                				errorarray[${equalz}]=2
+                			else
+                				devfounf=0
+						status="$device $info is UP - Tunnel is UP and Connected to $target - FootPrint is $traffic - Matrix size is ${#statusarray[*]}x${#devicearray[*]}"
+                				errorarray[${equalz}]=0   
+					fi
+				fi
 			fi
-		fi
+		done
 	done
 fi
-	
+
+#Aufräumen
+#clean
+
 #Device nicht gefunden
 if [ "$devfounf" != "0" ]
 then
-	if [  "$device" != "notset" ]
+	if [  "$reddevice" != "notset" ]
 	then
-		echo "Error. $device not found"
+		echo "Error. $reddevice not found"
 		exit 3
 	fi
 fi
@@ -202,7 +230,7 @@ error=`echo ${errorarray[*]} | grep 2`
 ok=`echo ${errorarray[*]} | grep 0`
 
 #Statusausgabe
-echo -e $status | sed '1,1s/ , //'
+echo $status | sed '1,1s/ , //'
 
 #Unknown
 if [ "$error" == ""  ] && [ "$ok" == ""  ]
@@ -219,5 +247,5 @@ fi
 #OK
 if [ "$ok" != ""  ]
 then
-    exit 0
+        exit 0
 fi
