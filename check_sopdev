@@ -42,6 +42,8 @@ helpme()
 	echo ""
         echo "Usage Shell:"
         echo -e "\t check_sopdev -h \$HOST -c \$COMMUNITY -d \$DEVICENAME -i \$INFODESCRIPTION"
+        echo "Usage Nagios"
+        echo -e "\t check_sopdev!\$COMMUNITY!\$DEVICENAME"
 	echo ""
 	exit 3
 }
@@ -129,21 +131,13 @@ trap 'clean' SIGINT SIGHUP SIGILL SIGSYS SIGTERM SIGSTOP 0 1 2 3
 
 #Daten sammeln und array füllen
 IFS=$'\n'
-readarray -t devicearray <<< "$(snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.2 | egrep $reddevice)"
+readarray -t devicearray <<< "$(snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.2 | egrep -w $reddevice)"
 readarray -t statusarray <<< "$(snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.2.2.1.17)"
 errorarray=()
 
 #Abfrage für alle devices
 if [ "$reddevice" == "(wlan|red)" ]
 then
-	reddrun=`snmpwalk -v2c -c $community $target -On .1.3.6.1.2.1.25.4.2.1.4.4275 | awk '{print $4}' | sed 's/"//g'`
-	if [ "$reddrun" == "" ]
-	then
-		echo "Red daemon is not Running, "
-		exit 2
-	else
-		status="$status Red daemon is Running"
-	fi
 	for i in "${statusarray[@]}"
 	do
 		for z in "${devicearray[@]}"
@@ -197,11 +191,11 @@ else
                 			if [[ "$fpinuse" != "" ]]
                 			then
                 				devfounf=0
-						status="$device $info is DOWN - Tunnel is DOWN and not Connected to $target - FootPrint is $traffic - Matrix size is ${#statusarray[*]}x${#devicearray[*]}"
+						status="$device $info is DOWN \nTunnel is DOWN and not Connected to $target \nFootPrint $traffic - Matrix ${#statusarray[*]}x${#devicearray[*]}"
                 				errorarray[${equalz}]=2
                 			else
                 				devfounf=0
-						status="$device $info is UP - Tunnel is UP and Connected to $target - FootPrint is $traffic - Matrix size is ${#statusarray[*]}x${#devicearray[*]}"
+						status="$device $info is UP \nTunnel is UP and Connected to $target \nFootPrint $traffic - Matrix ${#statusarray[*]}x${#devicearray[*]}"
                 				errorarray[${equalz}]=0   
 					fi
 				fi
