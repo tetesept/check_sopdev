@@ -16,4 +16,4 @@ check_sopdev -t 192.186.1.1 -c public -d red2 -i Frankfurt
 If you like this Skrit and find it helpful
 Please feel free to donate to keep this Project free
 Thanks in advance for your help
-Paypal mail@thomas-schewe.de
+Paypal teteseptete@googlemail.com
